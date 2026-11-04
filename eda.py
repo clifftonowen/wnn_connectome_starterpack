@@ -96,7 +96,9 @@ class PearsonStats:
 def sample_group_indices(total: int, requested: int) -> list[int]:
     if total == 0 or requested < 1:
         return []
-    return sorted(set(np.linspace(0, total - 1, min(total, requested), dtype=int)))
+    return [int(index) for index in sorted(
+        set(np.linspace(0, total - 1, min(total, requested), dtype=int))
+    )]
 
 
 def column(table, name: str) -> np.ndarray:
