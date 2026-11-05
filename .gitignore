@@ -1,5 +1,8 @@
 /datasets/
 /.venv/
+/.venv-train/
+/caviar_cache/
+/caviar_runs/
 __pycache__/
 *.py[cod]
 **/.ipynb_checkpoints/

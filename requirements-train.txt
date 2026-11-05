@@ -1,0 +1,13 @@
+# Training environment for caviar/. Python 3.11, matching the scorer.
+# Install torch separately from the CUDA index; see caviar/README.md.
+numpy==2.2.6
+onnxruntime==1.23.2
+pyarrow==19.0.1
+onnx
+pandas
+scikit-learn
+lightgbm
+matplotlib
+ipykernel
+nbformat
+nbclient
