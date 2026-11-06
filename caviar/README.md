@@ -40,8 +40,9 @@ A final model trains on everything except a small dev set, and can then be packa
 
     python -m caviar.data --split rest                                 # cache all remaining sequences
     python -m caviar.run_all --round r2 --parallel 1 --keys group_gru --folds -1 --tag r2_final --max-steps 12000 --eval-every 500 --patience 5 --extra-split extra rest
-    python -m caviar.package build caviar_runs/r2_final/group_gru_s0_f-1.pt --name final
-    python -m caviar.package check caviar_runs/submission/final.zip --data full --passes 2
+    python -m caviar.run_all --round r2 --parallel 1 --keys group_gru --folds -1 --tag r2_final_long --max-steps 24000 --eval-every 1000 --patience 5 --extra-split extra rest
+    python -m caviar.package build caviar_runs/r2_final_long/group_gru_s0_f-1.pt --name final_group_gru_24k
+    python -m caviar.package check caviar_runs/submission/final_group_gru_24k.zip --data full --passes 2
 
 `--tag` keeps runs with other settings in their own folder, `caviar_runs/<tag>/`, and in the
 `tag` column of the results. Tuning models run only when named with `--keys`. Export merges
