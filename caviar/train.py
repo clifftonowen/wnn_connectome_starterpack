@@ -2,6 +2,9 @@
 
     python -m caviar.train --key gru2 --round r1 --fold 0
 
+Fold -1 holds out nothing, for a final model. It has no fold score, so judge it on
+validation.
+
 Writes caviar_runs/<round>/<key>_s<seed>_f<fold>.json and .pt. Valid.parquet is
 only ever scored, never trained on, and held-out fold rows are not used for early
 stopping: a small dev set split from the training folds is used instead.
@@ -51,16 +54,16 @@ def weighted_loss(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 
 class Joined:
-    """Two cached arrays read as one, for the sampler's (sequence, rows) lookups."""
+    """Cached arrays read as one, for the sampler's (sequence, rows) lookups."""
 
-    def __init__(self, first, second):
-        self.first, self.second, self.offset = first, second, len(first)
+    def __init__(self, *arrays):
+        self.arrays = arrays
+        self.starts = np.cumsum([0, *[len(a) for a in arrays[:-1]]])
 
     def __getitem__(self, key):
         sequence, rows = key
-        if sequence < self.offset:
-            return self.first[sequence, rows]
-        return self.second[sequence - self.offset, rows]
+        part = int(np.searchsorted(self.starts, sequence, side='right')) - 1
+        return self.arrays[part][sequence - self.starts[part], rows]
 
 
 class Sampler:
@@ -277,8 +280,8 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     if extra_split:
         cfg['extra_split'] = extra_split
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    torch.manual_seed(seed + 1000 * fold)
-    rng = np.random.default_rng(seed + 1000 * fold)
+    torch.manual_seed(seed + 1000 * max(fold, 0))
+    rng = np.random.default_rng(seed + 1000 * max(fold, 0))
     torch.backends.cudnn.benchmark = True
     torch.set_num_threads(CPU_THREADS)
     if torch.cuda.is_available():
@@ -300,10 +303,11 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     pool = None
     if extra_split:
         # Training only: dev, held-out rows and input scaling stay on the round's own sequences.
-        extra = cache.load(extra_split)
-        pool = Joined(x, extra['x']), Joined(y, extra['y'])
-        train_idx = np.concatenate([train_idx, len(x) + np.arange(len(extra['x']))])
-        log(f"training on {len(train_idx)} sequences, {len(extra['x'])} of them extra")
+        extras = [cache.load(split) for split in extra_split]
+        pool = Joined(x, *[e['x'] for e in extras]), Joined(y, *[e['y'] for e in extras])
+        added = sum(len(e['x']) for e in extras)
+        train_idx = np.concatenate([train_idx, len(x) + np.arange(added)])
+        log(f'training on {len(train_idx)} sequences, {added} of them extra')
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     if spec.fit == 'gradient':
@@ -314,7 +318,7 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
         fit = fit_constant(model, y, train_idx, device)
 
     begin = time.perf_counter()
-    cv = evaluate(model, x, y, held, device)['all']
+    cv = evaluate(model, x, y, held, device)['all'] if len(held) else dict.fromkeys(['wp', 't0', 't1'])
     valid = evaluate(model, valid_data['x'], valid_data['y'], np.arange(len(valid_data['x'])),
                      device, valid_data['mask'])
     eval_seconds = time.perf_counter() - begin
@@ -337,7 +341,7 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     temporary.write_text(json.dumps(result, indent=2), encoding='utf-8')
     temporary.replace(out_json)
     checkpoint.unlink(missing_ok=True)
-    log(f"done cv {cv['wp']:.4f} valid_masked {valid['masked']['wp']:.4f} valid_all {valid['all']['wp']:.4f}")
+    log(f"done cv {cv['wp']} valid_masked {valid['masked']['wp']:.4f} valid_all {valid['all']['wp']:.4f}")
     return result
 
 
@@ -351,7 +355,7 @@ def main():
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--gpu-fraction', type=float, default=GPU_FRACTION,
                         help='raise it to run one memory-heavy model alone')
-    parser.add_argument('--extra-split', help='extra cached sequences to train on, such as extra')
+    parser.add_argument('--extra-split', nargs='+', help='extra cached sequences to train on, such as extra rest')
     for name, value in DEFAULTS.items():
         parser.add_argument('--' + name.replace('_', '-'), type=type(value), default=value)
     args = parser.parse_args()

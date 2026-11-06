@@ -36,6 +36,13 @@ Tuning runs use the same tools:
     python -m caviar.run_all --round r2 --parallel 2 --keys group_gru --folds 0 1 2 --tag r2_long_extra --max-steps 12000 --eval-every 500 --patience 5 --extra-split extra
     python -m caviar.verify_top caviar_runs/r2_long_extra/group_gru_s0_f0.pt --passes 1
 
+A final model trains on everything except a small dev set, and can then be packaged:
+
+    python -m caviar.data --split rest                                 # cache all remaining sequences
+    python -m caviar.run_all --round r2 --parallel 1 --keys group_gru --folds -1 --tag r2_final --max-steps 12000 --eval-every 500 --patience 5 --extra-split extra rest
+    python -m caviar.package build caviar_runs/r2_final/group_gru_s0_f-1.pt --name final
+    python -m caviar.package check caviar_runs/submission/final.zip --data full --passes 2
+
 `--tag` keeps runs with other settings in their own folder, `caviar_runs/<tag>/`, and in the
 `tag` column of the results. Tuning models run only when named with `--keys`. Export merges
 the feature group encoders by default, which gives the same outputs in far fewer ONNX
@@ -61,6 +68,8 @@ passed on to `train`.
 | `score_baseline.py` | Scores the baseline, and `--run` tests a trained model |
 | `verify_top.py` | Runs a model through the real scorer on all of validation |
 | `scorer_speed.py` | Times models through the real scorer on part of validation |
+| `package.py` | Builds a submission ZIP from a run, and checks the ZIP through the real scorer |
+| `solution_template.py` | The `solution.py` that goes into the ZIP |
 
 ## Limits on this machine (32 GB RAM, 8 GB GPU)
 

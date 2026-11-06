@@ -175,6 +175,8 @@ def main() -> None:
         }
     folds['fold_extra'] = assign_extra(strata, folds['fold_r2'], EXTRA_SEQUENCES, SEED)
     assert not ((folds['fold_extra'] >= 0) & (folds['fold_r2'] >= 0)).any()
+    # Every other sequence, for a final model trained on all of the training data.
+    folds['fold_rest'] = ((folds['fold_r2'] < 0) & (folds['fold_extra'] < 0)).map({True: 0, False: -1})
     folds.to_csv(REPORTS / 'caviar_folds.csv', index=False)
 
     summary = {

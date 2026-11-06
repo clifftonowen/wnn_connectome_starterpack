@@ -3,6 +3,7 @@
     python -m caviar.data --split r1      # training sequences of a round
     python -m caviar.data --split valid   # the full validation file
     python -m caviar.data --split extra   # extra training sequences outside Round 2
+    python -m caviar.data --split rest    # all training sequences not cached above
 
 Each cached sequence uses about 9 MB. Several training runs share one cache, and
 the operating system keeps the parts in use in memory.
@@ -162,5 +163,5 @@ def load(split: str) -> dict[str, np.ndarray]:
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--split', required=True, choices=['r1', 'r2', 'valid', 'extra'])
+    parser.add_argument('--split', required=True, choices=['r1', 'r2', 'valid', 'extra', 'rest'])
     build(parser.parse_args().split)
