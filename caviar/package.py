@@ -1,6 +1,7 @@
 """Build a submission ZIP from a trained run, and check the ZIP through the real scorer.
 
     python -m caviar.package build caviar_runs/r2_long_extra/group_gru_s0_f0.pt --name best
+    python -m caviar.package build run_a.pt run_b.pt --name pair
     python -m caviar.package check caviar_runs/submission/best.zip --data subset
     python -m caviar.package check caviar_runs/submission/best.zip --data full --passes 2
 
@@ -47,24 +48,36 @@ class Hashing:
         return value
 
 
-def build_zip(run: Path, name: str) -> Path:
+def load_models(runs: list[Path]):
     import torch
 
     from caviar.models import build
+
+    models = []
+    for run in runs:
+        saved = torch.load(run, map_location='cpu', weights_only=True)
+        model = build(saved['key'])
+        model.load_state_dict(saved['state_dict'])
+        models.append(model.eval())
+    return models
+
+
+def build_zip(runs: list[Path], name: str) -> Path:
+    from caviar.models import Averaged
     from caviar.speed import export
 
-    saved = torch.load(run, map_location='cpu', weights_only=True)
-    result = json.loads(run.with_suffix('.json').read_text(encoding='utf-8'))
-    model = build(saved['key'])
-    model.load_state_dict(saved['state_dict'])
+    results = [json.loads(run.with_suffix('.json').read_text(encoding='utf-8')) for run in runs]
+    keys = sorted({result['key'] for result in results})
+    # An average has no score from training, so the check then compares nothing.
+    expected = results[0]['valid_masked_wp'] if len(runs) == 1 else None
+    models = load_models(runs)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / f'{name}.zip'
     with tempfile.TemporaryDirectory() as folder:
-        onnx_path = Path(folder) / 'model.onnx'
-        export(model, str(onnx_path))
-        notes = (f"# {saved['key']}\n\nStateful ONNX model, one row per call, on one CPU thread.\n"
-                 f"Masked validation score from training: {result['valid_masked_wp']:.6f}.\n")
+        notes = f"# {' + '.join(keys)}\n\nAverage of {len(runs)} stateful model(s), ONNX, one row per call, on one CPU thread.\n"
         with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as archive:
+            onnx_path = Path(folder) / 'model.onnx'
+            export(models[0] if len(models) == 1 else Averaged(models), str(onnx_path))
             archive.write(Path(__file__).with_name('solution_template.py'), 'solution.py')
             archive.write(onnx_path, 'model.onnx')
             archive.writestr('MODEL.md', notes)
@@ -72,7 +85,7 @@ def build_zip(run: Path, name: str) -> Path:
     if size > MAX_MB:
         raise SystemExit(f'{path.name} is {size:.1f} MB, over the {MAX_MB} MB limit')
     path.with_suffix('.json').write_text(json.dumps({
-        'run': str(run), 'key': saved['key'], 'score_from_training': result['valid_masked_wp'], 'zip_mb': size,
+        'runs': [str(run) for run in runs], 'keys': keys, 'score_from_training': expected, 'zip_mb': size,
     }, indent=2), encoding='utf-8')
     print(f'{path}: {size:.2f} MB')
     return path
@@ -112,7 +125,7 @@ def check_zip(path: Path, data: str, passes: int, label: str = '', data_path: Pa
         'same_predictions': len({p['hash'] for p in results}) == 1,
         'under_limit': all(p['us_per_row'] < LIMIT_US for p in results),
     }
-    if data == 'full':
+    if data == 'full' and expected is not None:
         report['score_from_training'] = expected
         report['score_gap'] = abs(results[0]['score'] - expected)
         report['score_matches'] = report['score_gap'] < SCORE_TOLERANCE
@@ -128,7 +141,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest='command', required=True)
     make = commands.add_parser('build')
-    make.add_argument('run', type=Path)
+    make.add_argument('runs', type=Path, nargs='+')
     make.add_argument('--name', required=True)
     check = commands.add_parser('check')
     check.add_argument('zip', type=Path)
@@ -138,7 +151,7 @@ def main() -> None:
     check.add_argument('--data-path', type=Path, help='use this file instead of the default for --data')
     args = parser.parse_args()
     if args.command == 'build':
-        build_zip(args.run, args.name)
+        build_zip(args.runs, args.name)
     else:
         check_zip(args.zip, args.data, args.passes, args.label, args.data_path)
 

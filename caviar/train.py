@@ -33,7 +33,7 @@ RUNS = ROOT / 'caviar_runs'
 CLIP = 2.0
 DEFAULTS = dict(batch=64, window=1024, max_steps=3000, lr=1e-3, weight_decay=1e-5,
                 warmup_steps=100, eval_every=250, patience=5, grad_clip=1.0,
-                dev_fraction=0.05, dev_rows=5000)
+                dev_fraction=0.05, dev_rows=5000, ema=0.0, dropout=0.0, noise=0.0)
 EVAL_BATCH = 64
 EVAL_CHUNK = 2000
 CPU_THREADS = 2
@@ -140,6 +140,7 @@ def save_checkpoint(path: Path, content: dict) -> None:
 def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpoint: Path,
                  pool=None) -> dict:
     model.train()
+    model.dropout = cfg['dropout']
     decay = [p for p in model.parameters() if p.ndim > 1]
     other = [p for p in model.parameters() if p.ndim <= 1]
     optimizer = torch.optim.AdamW([{'params': decay, 'weight_decay': cfg['weight_decay']},
@@ -158,6 +159,8 @@ def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpo
     best, best_step, bad, history, step = -math.inf, 0, 0, [], 0
     best_weights = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
     trained_rows, train_seconds, running = 0, 0.0, []
+    # A slowly updated copy of the weights. When on, it is what gets scored and kept.
+    ema = {k: v.detach().clone() for k, v in model.state_dict().items()} if cfg['ema'] else None
     if checkpoint.exists():
         # Our own file, so the full pickle load needed for random states is fine.
         saved = torch.load(checkpoint, map_location=device, weights_only=False)
@@ -169,6 +172,7 @@ def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpo
         best, best_step, bad = saved['best'], saved['best_step'], saved['bad']
         best_weights, history, step = saved['best_weights'], saved['history'], saved['step']
         trained_rows, train_seconds = saved['trained_rows'], saved['train_seconds']
+        ema = saved['ema']
         rng.bit_generator.state = saved['numpy_rng']
         torch.set_rng_state(saved['torch_rng'].cpu())
         if torch.cuda.is_available():
@@ -179,6 +183,8 @@ def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpo
     for step_number in range(first_step, cfg['max_steps'] + 1):
         step = step_number
         xb, yb, starts = sample()
+        if cfg['noise']:
+            xb = xb + cfg['noise'] * model.std * torch.randn_like(xb)
         pred, _ = model(xb)
         keep = (starts.unsqueeze(1) + rows) >= WARMUP
         loss = weighted_loss(pred[keep], yb[keep])
@@ -187,10 +193,19 @@ def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpo
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg['grad_clip'])
         optimizer.step()
         lr_schedule.step()
+        if ema is not None:
+            # Early on the copy follows the weights closely, so it forgets the random start.
+            keep = min(cfg['ema'], (1 + step) / (10 + step))
+            for name, value in model.state_dict().items():
+                ema[name].lerp_(value.detach(), 1 - keep)
         running.append(loss.item())
         trained_rows += xb.shape[0] * xb.shape[1]
         if step % cfg['eval_every'] == 0 or step == cfg['max_steps']:
             train_seconds += time.perf_counter() - begin
+            live = None
+            if ema is not None:
+                live = {k: v.detach().clone() for k, v in model.state_dict().items()}
+                model.load_state_dict(ema)
             score = dev_score(model, x, y, dev_idx, cfg['dev_rows'], device)
             history.append({'step': step, 'loss': float(np.mean(running)), 'dev_wp': score})
             log(f"step {step} loss {history[-1]['loss']:.4f} dev_wp {score:.4f} "
@@ -201,11 +216,13 @@ def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpo
                 best_weights = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             else:
                 bad += 1
+            if live is not None:
+                model.load_state_dict(live)
             save_checkpoint(checkpoint, {
                 'config': cfg, 'step': step, 'model': model.state_dict(),
                 'optimizer': optimizer.state_dict(), 'schedule': lr_schedule.state_dict(),
                 'best': best, 'best_step': best_step, 'bad': bad, 'best_weights': best_weights,
-                'history': history, 'trained_rows': trained_rows, 'train_seconds': train_seconds,
+                'history': history, 'trained_rows': trained_rows, 'train_seconds': train_seconds, 'ema': ema,
                 'numpy_rng': rng.bit_generator.state, 'torch_rng': torch.get_rng_state(),
                 'cuda_rng': torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
             })

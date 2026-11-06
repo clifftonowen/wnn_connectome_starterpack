@@ -687,6 +687,7 @@ class SeqModel(nn.Module):
         self.register_buffer('std', torch.ones(N_FEATURES))
         self.body = body
         self.head = nn.Linear(out, 2)
+        self.dropout = 0.0
 
     def set_scaling(self, mean, std):
         self.mean.copy_(mean)
@@ -697,6 +698,8 @@ class SeqModel(nn.Module):
 
     def forward(self, x, state=None):
         h, state = self.features(x, state)
+        if self.training and self.dropout:
+            h = torch.nn.functional.dropout(h, self.dropout)
         return self.head(h), state
 
 
@@ -792,8 +795,8 @@ def _instr(width, hidden):
     return Chain(GroupEncoder(INSTRUMENT_GROUPS, width), TorchRNN('gru', width * 3, hidden)), hidden
 
 
-def _group(width, hidden):
-    return Chain(GroupEncoder(FEATURE_GROUPS, width), TorchRNN('gru', width * 5, hidden)), hidden
+def _group(width, hidden, layers=1):
+    return Chain(GroupEncoder(FEATURE_GROUPS, width), TorchRNN('gru', width * 5, hidden, layers)), hidden
 
 
 def _plain_gru(hidden, layers):
@@ -811,6 +814,11 @@ TUNING = [Spec(id_, key, name, build_, 'tuning') for id_, key, name, build_ in [
     (107, 'instr_e16_h48', 'instr_gru, encoders 16, GRU 48', lambda: _instr(16, 48)),
     (111, 'group_e32_h96', 'group_gru, encoders 32, GRU 96', lambda: _group(32, 96)),
     (112, 'group_e24_h96', 'group_gru, encoders 24, GRU 96', lambda: _group(24, 96)),
+    (113, 'group_e32_h192', 'group_gru, encoders 32, GRU 192', lambda: _group(32, 192)),
+    (114, 'group_e48_h192', 'group_gru, encoders 48, GRU 192', lambda: _group(48, 192)),
+    (115, 'group_e32_h128_l2', 'group_gru, encoders 32, two GRU layers of 128', lambda: _group(32, 128, 2)),
+    (116, 'group_e64_h256', 'group_gru, encoders 64, GRU 256', lambda: _group(64, 256)),
+    (117, 'group_e64_h384', 'group_gru, encoders 64, GRU 384', lambda: _group(64, 384)),
     (121, 'gru1_h128', 'One-layer GRU 128', lambda: _plain_gru(128, 1)),
     (122, 'gru1_h96', 'One-layer GRU 96', lambda: _plain_gru(96, 1)),
     (123, 'gru2_h96', 'Two-layer GRU 96', lambda: _plain_gru(96, 2)),
@@ -865,6 +873,19 @@ def merge_encoders(model):
                 if isinstance(layer, GroupEncoder):
                     module.layers[index] = MergedEncoder(layer).to(layer.encoders[0][0].weight.device)
     return model
+
+
+class Averaged(nn.Module):
+    """Several models run side by side, with their predictions averaged."""
+
+    def __init__(self, models):
+        super().__init__()
+        self.models = nn.ModuleList(models)
+
+    def forward(self, x, state=None):
+        state = state or [None] * len(self.models)
+        results = [model(x, part) for model, part in zip(self.models, state)]
+        return torch.stack([pred for pred, _ in results]).mean(0), [new for _, new in results]
 
 
 def flatten_state(state) -> list[torch.Tensor]:
