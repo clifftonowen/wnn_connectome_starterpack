@@ -1,0 +1,20 @@
+{
+  "run": "caviar_runs\\r2_long_extra\\group_gru_s0_f0.pt",
+  "onnx_mb": 0.5972700119018555,
+  "passes": [
+    {
+      "score": 0.679826925111336,
+      "t0": 0.6749771072373636,
+      "t1": 0.6846767429853085,
+      "seconds": 2925.374014300003,
+      "us_per_row": 78.09327320608658,
+      "hash": "0b7bf53907063ae444a44be505b1fec1"
+    }
+  ],
+  "score_from_training": 0.6798265518698743,
+  "score_gap": 3.732414617374502e-07,
+  "limit_us_per_row": 91.37055837563452,
+  "same_predictions": true,
+  "score_matches": true,
+  "under_limit": true
+}

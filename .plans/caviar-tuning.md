@@ -1,5 +1,8 @@
 # Caviar tuning: overnight plan
 
+**Status: all steps done, with no failed runs.** Results and differences from this plan are
+in `notebooks/03_tuning_results.ipynb`.
+
 Goal: a model well under the speed limit that keeps as much score as possible.
 Approved by the user for an unattended overnight run, stopping only on failure.
 

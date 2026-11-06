@@ -1,8 +1,8 @@
 # Caviar model comparison
 
 Trains many sequence models the same way, so differences in score come from the
-model and not the setup. Results are in `notebooks/02_caviar_results.ipynb` and
-`reports/caviar_results.csv`.
+model and not the setup. Results are in `notebooks/02_caviar_results.ipynb`,
+`notebooks/03_tuning_results.ipynb` and `reports/caviar_results.csv`.
 
 ## Setup
 
@@ -27,6 +27,20 @@ Run every command below from the repo root.
     python -m caviar.run_all --collect          # rebuild reports/caviar_results.csv
     python -m caviar.verify_top caviar_runs/r2/group_gru_s0_f0.pt
 
+Tuning runs use the same tools:
+
+    python -m caviar.scorer_speed --floors --keys group_gru gru1_h96   # real scorer on 600,000 rows
+    python -m caviar.check_models --keys gru1_h96                      # test named models only
+    python -m caviar.run_all --round r2 --parallel 2 --keys group_e32_h96 --folds 0 1 2
+    python -m caviar.data --split extra                                # cache 3,000 more sequences
+    python -m caviar.run_all --round r2 --parallel 2 --keys group_gru --folds 0 1 2 --tag r2_long_extra --max-steps 12000 --eval-every 500 --patience 5 --extra-split extra
+    python -m caviar.verify_top caviar_runs/r2_long_extra/group_gru_s0_f0.pt --passes 1
+
+`--tag` keeps runs with other settings in their own folder, `caviar_runs/<tag>/`, and in the
+`tag` column of the results. Tuning models run only when named with `--keys`. Export merges
+the feature group encoders by default, which gives the same outputs in far fewer ONNX
+operations.
+
 Stopping is safe. Finished runs are skipped, and a stopped run continues from its
 `.ckpt.pkl` file. Extra arguments to `run_all`, such as `--gpu-fraction 0.3`, are
 passed on to `train`.
@@ -45,7 +59,8 @@ passed on to `train`.
 | `check_models.py` | Leakage and row-by-row tests on untrained models |
 | `check_resume.py` | Tests that a stopped run resumes correctly |
 | `score_baseline.py` | Scores the baseline, and `--run` tests a trained model |
-| `verify_top.py` | Runs a model through the real scorer twice |
+| `verify_top.py` | Runs a model through the real scorer on all of validation |
+| `scorer_speed.py` | Times models through the real scorer on part of validation |
 
 ## Limits on this machine (32 GB RAM, 8 GB GPU)
 
