@@ -5,11 +5,12 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import traceback
 
 import torch
 
-from caviar.models import N_FEATURES, SPECS, build
+from caviar.models import N_FEATURES, SPECS, TUNING, build, merge_encoders
 
 ROWS = 300
 CUT = 200
@@ -37,22 +38,28 @@ def check(key: str, device: str) -> dict:
             rows.append(y)
         stream_gap = (torch.cat(rows, 1) - batch).abs().max().item()
         finite = bool(torch.isfinite(batch).all())
+        merge_gap = (merge_encoders(copy.deepcopy(model))(x)[0] - batch).abs().max().item()
     return {
         'params': sum(p.numel() for p in model.parameters()),
         'leak': leak,
         'reacts': reacts,
         'stream_gap': stream_gap,
-        'ok': finite and leak <= LEAK_LIMIT.get(key, 0.0) and reacts > 0 and stream_gap < TOLERANCE,
+        'merge_gap': merge_gap,
+        'ok': (finite and leak <= LEAK_LIMIT.get(key, 0.0) and reacts > 0 and stream_gap < TOLERANCE
+               and merge_gap < TOLERANCE),
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
+    parser.add_argument('--keys', nargs='*')
     args = parser.parse_args()
     failures = 0
-    print(f"{'#':>2} {'key':<12} {'params':>9} {'leak':>9} {'reacts':>9} {'stream gap':>11}")
-    for spec in SPECS:
+    print(f"{'#':>2} {'key':<12} {'params':>9} {'leak':>9} {'reacts':>9} {'stream gap':>11} {'merge gap':>9}")
+    for spec in [*SPECS, *TUNING]:
+        if args.keys and spec.key not in args.keys:
+            continue
         try:
             r = check(spec.key, args.device)
         except Exception:
@@ -62,7 +69,7 @@ def main() -> int:
             continue
         failures += not r['ok']
         print(f"{spec.id:>2} {spec.key:<12} {r['params']:>9,} {r['leak']:>9.2e} {r['reacts']:>9.2e} "
-              f"{r['stream_gap']:>11.2e} {'ok' if r['ok'] else 'FAIL'}")
+              f"{r['stream_gap']:>11.2e} {r['merge_gap']:>9.2e} {'ok' if r['ok'] else 'FAIL'}")
     print('failures:', failures)
     return failures
 

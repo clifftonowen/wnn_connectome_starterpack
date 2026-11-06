@@ -50,6 +50,19 @@ def weighted_loss(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return (w * (pred - y) ** 2).sum() / w.sum().clamp_min(1.0)
 
 
+class Joined:
+    """Two cached arrays read as one, for the sampler's (sequence, rows) lookups."""
+
+    def __init__(self, first, second):
+        self.first, self.second, self.offset = first, second, len(first)
+
+    def __getitem__(self, key):
+        sequence, rows = key
+        if sequence < self.offset:
+            return self.first[sequence, rows]
+        return self.second[sequence - self.offset, rows]
+
+
 class Sampler:
     def __init__(self, x, y, indices, batch, window, rng, device):
         self.x, self.y, self.indices = x, y, indices
@@ -121,7 +134,8 @@ def save_checkpoint(path: Path, content: dict) -> None:
     os.replace(temporary, path)
 
 
-def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpoint: Path) -> dict:
+def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpoint: Path,
+                 pool=None) -> dict:
     model.train()
     decay = [p for p in model.parameters() if p.ndim > 1]
     other = [p for p in model.parameters() if p.ndim <= 1]
@@ -135,7 +149,8 @@ def fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpo
         return 0.5 * (1 + math.cos(math.pi * min(1.0, progress)))
 
     lr_schedule = torch.optim.lr_scheduler.LambdaLR(optimizer, schedule)
-    sample = Sampler(x, y, train_idx, cfg['batch'], cfg['window'], rng, device)
+    pool_x, pool_y = pool or (x, y)
+    sample = Sampler(pool_x, pool_y, train_idx, cfg['batch'], cfg['window'], rng, device)
     rows = torch.arange(cfg['window'], device=device)
     best, best_step, bad, history, step = -math.inf, 0, 0, [], 0
     best_weights = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -247,7 +262,7 @@ def fit_constant(model, y, train_idx, device) -> dict:
 
 
 def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print,
-        gpu_fraction=GPU_FRACTION) -> dict:
+        gpu_fraction=GPU_FRACTION, extra_split=None) -> dict:
     out_dir = RUNS / (tag or round_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_json = out_dir / f'{key}_s{seed}_f{fold}.json'
@@ -259,6 +274,8 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
         checkpoint.unlink(missing_ok=True)
 
     cfg = {**DEFAULTS, **overrides}
+    if extra_split:
+        cfg['extra_split'] = extra_split
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     torch.manual_seed(seed + 1000 * fold)
     rng = np.random.default_rng(seed + 1000 * fold)
@@ -280,10 +297,17 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     model = build(key).to(device)
     model.set_scaling(*[t.to(device) for t in scaling(x, train_idx, rng)])
     spec = BY_KEY[key]
+    pool = None
+    if extra_split:
+        # Training only: dev, held-out rows and input scaling stay on the round's own sequences.
+        extra = cache.load(extra_split)
+        pool = Joined(x, extra['x']), Joined(y, extra['y'])
+        train_idx = np.concatenate([train_idx, len(x) + np.arange(len(extra['x']))])
+        log(f"training on {len(train_idx)} sequences, {len(extra['x'])} of them extra")
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     if spec.fit == 'gradient':
-        fit = fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpoint)
+        fit = fit_gradient(model, x, y, train_idx, dev_idx, cfg, rng, device, log, checkpoint, pool)
     elif spec.fit == 'ridge':
         fit = fit_ridge(model, x, y, train_idx, rng, device, log)
     else:
@@ -327,13 +351,14 @@ def main():
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--gpu-fraction', type=float, default=GPU_FRACTION,
                         help='raise it to run one memory-heavy model alone')
+    parser.add_argument('--extra-split', help='extra cached sequences to train on, such as extra')
     for name, value in DEFAULTS.items():
         parser.add_argument('--' + name.replace('_', '-'), type=type(value), default=value)
     args = parser.parse_args()
     overrides = {name: getattr(args, name) for name in DEFAULTS}
     run(args.key, args.round, args.fold, args.seed, overrides, args.tag, args.force,
         log=lambda message: print(f'[{args.key} f{args.fold}] {message}', flush=True),
-        gpu_fraction=args.gpu_fraction)
+        gpu_fraction=args.gpu_fraction, extra_split=args.extra_split)
 
 
 if __name__ == '__main__':

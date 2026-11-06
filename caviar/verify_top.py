@@ -66,7 +66,8 @@ def main() -> None:
     model = build(saved['key'])
     model.load_state_dict(saved['state_dict'])
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    onnx_path = OUT_DIR / f'{args.run.stem}.onnx'
+    name = args.run.stem if args.run.parent.name == 'r2' else f'{args.run.parent.name}_{args.run.stem}'
+    onnx_path = OUT_DIR / f'{name}.onnx'
     sess, names, zero = export(model, str(onnx_path))
 
     passes = []
@@ -89,7 +90,7 @@ def main() -> None:
         'score_matches': gap < SCORE_TOLERANCE,
         'under_limit': all(p['us_per_row'] < LIMIT_US for p in passes),
     }
-    out = ROOT / 'reports' / f'caviar_verify_{args.run.stem}.json'
+    out = ROOT / 'reports' / f'caviar_verify_{name}.json'
     out.write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(json.dumps(result, indent=2))
     if not (result['same_predictions'] and result['score_matches'] and result['under_limit']):

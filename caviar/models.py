@@ -786,16 +786,85 @@ SPECS = [Spec(*row) for row in [
      'suggested', 'ridge'),
 ]]
 # Model 31 (moving averages then LightGBM) is not a torch model; see gbm.py.
+
+
+def _instr(width, hidden):
+    return Chain(GroupEncoder(INSTRUMENT_GROUPS, width), TorchRNN('gru', width * 3, hidden)), hidden
+
+
+def _group(width, hidden):
+    return Chain(GroupEncoder(FEATURE_GROUPS, width), TorchRNN('gru', width * 5, hidden)), hidden
+
+
+def _plain_gru(hidden, layers):
+    return TorchRNN('gru', N_FEATURES, hidden, layers), hidden
+
+
+# Smaller versions for the speed limit. Run only when named with --keys.
+TUNING = [Spec(id_, key, name, build_, 'tuning') for id_, key, name, build_ in [
+    (101, 'instr_e48_h96', 'instr_gru, encoders 48, GRU 96', lambda: _instr(48, 96)),
+    (102, 'instr_e32_h128', 'instr_gru, encoders 32, GRU 128', lambda: _instr(32, 128)),
+    (103, 'instr_e32_h96', 'instr_gru, encoders 32, GRU 96', lambda: _instr(32, 96)),
+    (104, 'instr_e32_h64', 'instr_gru, encoders 32, GRU 64', lambda: _instr(32, 64)),
+    (105, 'instr_e24_h96', 'instr_gru, encoders 24, GRU 96', lambda: _instr(24, 96)),
+    (106, 'instr_e24_h64', 'instr_gru, encoders 24, GRU 64', lambda: _instr(24, 64)),
+    (107, 'instr_e16_h48', 'instr_gru, encoders 16, GRU 48', lambda: _instr(16, 48)),
+    (111, 'group_e32_h96', 'group_gru, encoders 32, GRU 96', lambda: _group(32, 96)),
+    (112, 'group_e24_h96', 'group_gru, encoders 24, GRU 96', lambda: _group(24, 96)),
+    (121, 'gru1_h128', 'One-layer GRU 128', lambda: _plain_gru(128, 1)),
+    (122, 'gru1_h96', 'One-layer GRU 96', lambda: _plain_gru(96, 1)),
+    (123, 'gru2_h96', 'Two-layer GRU 96', lambda: _plain_gru(96, 2)),
+    (124, 'gru2_h64', 'Two-layer GRU 64', lambda: _plain_gru(64, 2)),
+]]
 REFERENCES = [
     Spec(-2, 'constant', 'Constant prediction', lambda: (Chain(), N_FEATURES), 'reference', 'constant'),
     Spec(-1, 'ridge', 'Ridge on the current row', lambda: (Chain(), N_FEATURES), 'reference', 'ridge'),
 ]
-BY_KEY = {spec.key: spec for spec in [*SPECS, *REFERENCES]}
+BY_KEY = {spec.key: spec for spec in [*SPECS, *REFERENCES, *TUNING]}
 
 
 def build(key: str) -> SeqModel:
     body, out = BY_KEY[key].build()
     return SeqModel(body, out)
+
+
+class MergedEncoder(nn.Module):
+    """A GroupEncoder as one pair of matrices: same outputs, far fewer ONNX steps.
+
+    Each group's weights fill its own block, and the rest stay zero. Used only when
+    exporting, so training and saved weights are unchanged.
+    """
+
+    def __init__(self, encoder):
+        super().__init__()
+        columns = [column for group in encoder.groups for column in group]
+        if columns != list(range(N_FEATURES)):
+            raise ValueError('groups must cover the features in order')
+        width = encoder.encoders[0][0].out_features
+        total = width * len(encoder.groups)
+        self.first, self.second = nn.Linear(N_FEATURES, total), nn.Linear(total, total)
+        with torch.no_grad():
+            self.first.weight.zero_()
+            self.second.weight.zero_()
+            for index, (group, part) in enumerate(zip(encoder.groups, encoder.encoders)):
+                rows = slice(index * width, (index + 1) * width)
+                self.first.weight[rows, group[0]:group[-1] + 1] = part[0].weight
+                self.first.bias[rows] = part[0].bias
+                self.second.weight[rows, rows] = part[2].weight
+                self.second.bias[rows] = part[2].bias
+
+    def forward(self, x, state=None):
+        return self.second(torch.nn.functional.gelu(self.first(x))), None
+
+
+def merge_encoders(model):
+    """Replace every GroupEncoder in place. Returns the model."""
+    for module in model.modules():
+        if isinstance(module, Chain):
+            for index, layer in enumerate(module.layers):
+                if isinstance(layer, GroupEncoder):
+                    module.layers[index] = MergedEncoder(layer).to(layer.encoders[0][0].weight.device)
+    return model
 
 
 def flatten_state(state) -> list[torch.Tensor]:

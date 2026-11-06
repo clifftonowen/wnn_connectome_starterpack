@@ -22,7 +22,7 @@ import onnxruntime as ort
 import pandas as pd
 import torch
 
-from caviar.models import N_FEATURES, SPECS, build, flatten_state, unflatten_state
+from caviar.models import N_FEATURES, SPECS, TUNING, build, flatten_state, merge_encoders, unflatten_state
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'reports' / 'caviar_speed.csv'
@@ -52,9 +52,9 @@ def session(path: str) -> ort.InferenceSession:
     return ort.InferenceSession(path, sess_options=options, providers=['CPUExecutionProvider'])
 
 
-def export(model, path: str):
+def export(model, path: str, merge: bool = True):
     """Export the row step and confirm ONNX matches torch. Returns the zero state."""
-    model = model.eval()
+    model = (merge_encoders(model) if merge else model).eval()
     x = torch.randn(1, 1, N_FEATURES)
     with torch.no_grad():
         _, template = model(x)
@@ -96,7 +96,7 @@ def main():
     args = parser.parse_args()
     rows = []
     with tempfile.TemporaryDirectory() as folder:
-        for spec in SPECS:
+        for spec in [*SPECS, *TUNING]:
             if spec.key not in args.keys:
                 continue
             path = str(Path(folder) / f'{spec.key}.onnx')

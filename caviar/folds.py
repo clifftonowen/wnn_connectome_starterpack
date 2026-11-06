@@ -40,6 +40,7 @@ SEED = 20261105
 N_BINS = 5
 MIN_STRATUM = 5
 ROUNDS = {'r1': (1500, 3), 'r2': (5000, 5)}
+EXTRA_SEQUENCES = 3000
 
 
 def _open(path: Path) -> pq.ParquetFile:
@@ -118,6 +119,16 @@ def assign_round(strata: pd.Series, n_sequences: int, n_folds: int, seed: int) -
     return fold
 
 
+def assign_extra(strata: pd.Series, fold_r2: pd.Series, n_sequences: int, seed: int) -> np.ndarray:
+    """Pick training-only sequences outside Round 2, so its held-out folds stay clean."""
+    fold = np.full(len(strata), -1, dtype=int)
+    unused = np.where(fold_r2.to_numpy() < 0)[0]
+    picker = StratifiedShuffleSplit(n_splits=1, train_size=n_sequences, random_state=seed)
+    chosen, _ = next(picker.split(np.zeros(len(unused)), strata.iloc[unused]))
+    fold[unused[chosen]] = 0
+    return fold
+
+
 def _save_progress(progress: dict) -> None:
     path = CACHE / 'folds_scan.pkl'
     temporary = path.with_suffix('.tmp')
@@ -162,6 +173,8 @@ def main() -> None:
             'fold_means': used.groupby('fold')[['mean_t0', 'mean_t1', 'abs_t0', 'abs_t1']]
                               .mean().round(4).to_dict('list'),
         }
+    folds['fold_extra'] = assign_extra(strata, folds['fold_r2'], EXTRA_SEQUENCES, SEED)
+    assert not ((folds['fold_extra'] >= 0) & (folds['fold_r2'] >= 0)).any()
     folds.to_csv(REPORTS / 'caviar_folds.csv', index=False)
 
     summary = {
