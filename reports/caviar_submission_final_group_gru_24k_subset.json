@@ -1,0 +1,23 @@
+{
+  "zip": "final_group_gru_24k.zip",
+  "data": "subset",
+  "files": [
+    "solution.py",
+    "model.onnx",
+    "MODEL.md"
+  ],
+  "passes": [
+    {
+      "score": 0.7094015404293075,
+      "t0": 0.7318613221737091,
+      "t1": 0.6869417586849058,
+      "seconds": 46.80064630000015,
+      "us_per_row": 78.00107716666692,
+      "hash": "aad2126e88a3cf79afc0772f7887f89d"
+    }
+  ],
+  "limit_us_per_row": 91.37055837563452,
+  "repeat_tested": false,
+  "same_predictions": true,
+  "under_limit": true
+}
