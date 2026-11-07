@@ -281,8 +281,16 @@ def fit_constant(model, y, train_idx, device) -> dict:
             'train_seconds': 0.0, 'train_rows_per_second': None}
 
 
+def valid_halves(count: int) -> tuple[np.ndarray, np.ndarray]:
+    """Fixed halves of validation: A is the first half in file order (sorted seq_ix), B the rest.
+
+    seq_ix looks like a random id, so this is an unbiased split, and it never changes.
+    """
+    return np.arange(count // 2), np.arange(count // 2, count)
+
+
 def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print,
-        gpu_fraction=GPU_FRACTION, extra_split=None) -> dict:
+        gpu_fraction=GPU_FRACTION, extra_split=None, valid_train=None) -> dict:
     out_dir = RUNS / (tag or round_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_json = out_dir / f'{key}_s{seed}_f{fold}.json'
@@ -296,6 +304,8 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     cfg = {**DEFAULTS, **overrides}
     if extra_split:
         cfg['extra_split'] = extra_split
+    if valid_train:
+        cfg['valid_train'] = valid_train
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     torch.manual_seed(seed + 1000 * max(fold, 0))
     rng = np.random.default_rng(seed + 1000 * max(fold, 0))
@@ -318,13 +328,21 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     model.set_scaling(*[t.to(device) for t in scaling(x, train_idx, rng)])
     spec = BY_KEY[key]
     pool = None
-    if extra_split:
-        # Training only: dev, held-out rows and input scaling stay on the round's own sequences.
-        extras = [cache.load(split) for split in extra_split]
+    # Training only: dev, held-out rows and input scaling stay on the round's own sequences.
+    # Whole arrays go into the pool, read lazily, so nothing large is copied into memory.
+    extras = [cache.load(split) for split in extra_split or []]
+    added = sum(len(e['x']) for e in extras)
+    scored = np.arange(len(valid_data['x']))
+    if valid_train:
+        trained, scored = valid_halves(len(valid_data['x']))
+        extras.append(valid_data)
+    if extras:
         pool = Joined(x, *[e['x'] for e in extras]), Joined(y, *[e['y'] for e in extras])
-        added = sum(len(e['x']) for e in extras)
         train_idx = np.concatenate([train_idx, len(x) + np.arange(added)])
-        log(f'training on {len(train_idx)} sequences, {added} of them extra')
+        if valid_train:
+            train_idx = np.concatenate([train_idx, len(x) + added + trained])
+            log(f'adding validation half {valid_train}, {len(trained)} sequences; scoring the other half')
+        log(f'training on {len(train_idx)} sequences, {len(train_idx) - len(rest) + n_dev} of them extra')
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     if spec.fit == 'gradient':
@@ -336,19 +354,25 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
 
     begin = time.perf_counter()
     cv = evaluate(model, x, y, held, device)['all'] if len(held) else dict.fromkeys(['wp', 't0', 't1'])
-    valid = evaluate(model, valid_data['x'], valid_data['y'], np.arange(len(valid_data['x'])),
-                     device, valid_data['mask'])
+    valid = evaluate(model, valid_data['x'], valid_data['y'], scored, device, valid_data['mask'])
     eval_seconds = time.perf_counter() - begin
 
+    if valid_train:
+        # Only half B was scored. Keep it out of the full-validation columns so tables can't mix them.
+        scores = {'validB_masked_wp': valid['masked']['wp'], 'validB_all_wp': valid['all']['wp'],
+                  'validB_masked_rows': valid['masked']['rows'],
+                  'valid_masked_wp': None, 'valid_all_wp': None}
+    else:
+        scores = {'valid_masked_wp': valid['masked']['wp'], 'valid_masked_t0': valid['masked']['t0'],
+                  'valid_masked_t1': valid['masked']['t1'], 'valid_masked_rows': valid['masked']['rows'],
+                  'valid_all_wp': valid['all']['wp'], 'valid_all_t0': valid['all']['t0'],
+                  'valid_all_t1': valid['all']['t1']}
     result = {
         'id': spec.id, 'key': key, 'name': spec.name, 'source': spec.source, 'round': round_name,
         'fold': fold, 'seed': seed, 'config': cfg,
         'params': sum(p.numel() for p in model.parameters() if p.requires_grad),
         'cv_wp': cv['wp'], 'cv_t0': cv['t0'], 'cv_t1': cv['t1'],
-        'valid_masked_wp': valid['masked']['wp'], 'valid_masked_t0': valid['masked']['t0'],
-        'valid_masked_t1': valid['masked']['t1'], 'valid_masked_rows': valid['masked']['rows'],
-        'valid_all_wp': valid['all']['wp'], 'valid_all_t0': valid['all']['t0'],
-        'valid_all_t1': valid['all']['t1'], 'eval_seconds': eval_seconds,
+        **scores, 'eval_seconds': eval_seconds,
         'peak_gpu_mb': torch.cuda.max_memory_allocated() / 2 ** 20 if torch.cuda.is_available() else None,
         **fit,
     }
@@ -373,13 +397,15 @@ def main():
     parser.add_argument('--gpu-fraction', type=float, default=GPU_FRACTION,
                         help='raise it to run one memory-heavy model alone')
     parser.add_argument('--extra-split', nargs='+', help='extra cached sequences to train on, such as extra rest')
+    parser.add_argument('--valid-train', choices=['A'],
+                        help='also train on validation half A, and score validation on half B only')
     for name, value in DEFAULTS.items():
         parser.add_argument('--' + name.replace('_', '-'), type=type(value), default=value)
     args = parser.parse_args()
     overrides = {name: getattr(args, name) for name in DEFAULTS}
     run(args.key, args.round, args.fold, args.seed, overrides, args.tag, args.force,
         log=lambda message: print(f'[{args.key} f{args.fold}] {message}', flush=True),
-        gpu_fraction=args.gpu_fraction, extra_split=args.extra_split)
+        gpu_fraction=args.gpu_fraction, extra_split=args.extra_split, valid_train=args.valid_train)
 
 
 if __name__ == '__main__':
