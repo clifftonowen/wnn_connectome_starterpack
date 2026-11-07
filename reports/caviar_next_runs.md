@@ -8,6 +8,7 @@
 | final_group_gru_24k.zip | 0.65137 | 0.6802 | 0.0288 | 22m56s |
 | interim_6800seq.zip | 0.65232 | 0.6798 | 0.0275 | 24m7s |
 | speed_onnx2.zip (two group_gru averaged) | 0.65408 | 0.6816 | 0.0275 | 43m21s |
+| final_ema_pair.zip (two EMA group_gru, all sequences) | 0.65440 | 0.6822 | 0.0278 | 40m31s |
 
 A pair took 1.84 times as long as one model, so nearly all scorer time is the network itself.
 Three group_gru models would take about 63 minutes, over the 60 minute limit.
