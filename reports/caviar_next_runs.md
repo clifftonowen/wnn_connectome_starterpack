@@ -53,3 +53,12 @@ They are compared with `r2_ema` on half B. Each reference model first reproduced
 - **It fails the keep rule, so validation stays out of training for now.**
 - Fold 0 stopped early, at step 7,000 with its best at 4,500. Folds 1 and 2 ran to 12,000 and gained.
 - So the result is not proven either way. A second seed on all three folds would settle it, at about 1.5 hours.
+
+## Next candidate: final_ema_pair.zip (step 5)
+
+Two group_gru models with EMA 0.999, trained on all training sequences (fold -1, extra and rest splits), seeds 0 and 1, averaged in one ONNX file.
+
+- Single models on masked validation: 0.6799 and 0.6811. The pair scores **0.6822**, against 0.6816 for speed_onnx2.zip.
+- Two full local passes gave identical predictions. Windows took 112 to 118 us per row.
+- Linux container with one CPU, on the subset: 104 and 116 us per row, identical passes. speed_onnx2.zip took 137 and 122 in the same run, so the new pair costs about the same and should take about 43 minutes on the scorer.
+- The local under-limit check fails for both, as it did for speed_onnx2, because that limit uses this machine's timing.
