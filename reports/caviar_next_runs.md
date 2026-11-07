@@ -36,3 +36,20 @@ Findings:
 - **EMA passes the keep rule, mostly through fold 2.** On folds 0 and 1 it gains only 0.0001 to 0.0014. On fold 2 it lifts the weakest reference run (0.6748, stopped early at step 8,500) to 0.6789. So it mainly protects against an unlucky run.
 - **Weight decay at 1e-3 and 1e-4 did nothing.** The setting was applied, but with AdamW at lr 1e-3 it shrinks the weights by under 1% over a run. A real test needs values near 0.01 to 0.1.
 - **Dropout hurts, input noise does nothing.**
+
+## Training on validation (step 4)
+
+Validation is split into fixed halves in file order (sorted `seq_ix`, which looks random): A is the first 936 sequences, B the other 937.
+The new runs add half A to training (`--valid-train A`), with EMA 0.999, on folds 0 to 2.
+They are compared with `r2_ema` on half B. Each reference model first reproduced its stored full validation score; the half-B numbers are in `caviar_half_b_reference.json`.
+
+| Fold | Half B masked, with A | Without A | Change | cv change | Half B all rows change |
+|---|---|---|---|---|---|
+| 0 | 0.6782 | 0.6801 | -0.0019 | -0.0047 | -0.0005 |
+| 1 | 0.6811 | 0.6800 | +0.0011 | +0.0047 | +0.0050 |
+| 2 | 0.6805 | 0.6787 | +0.0018 | +0.0002 | +0.0045 |
+| Mean | | | +0.0003 | +0.0000 | +0.0030 |
+
+- **It fails the keep rule, so validation stays out of training for now.**
+- Fold 0 stopped early, at step 7,000 with its best at 4,500. Folds 1 and 2 ran to 12,000 and gained.
+- So the result is not proven either way. A second seed on all three folds would settle it, at about 1.5 hours.
