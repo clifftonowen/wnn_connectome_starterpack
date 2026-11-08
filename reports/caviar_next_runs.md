@@ -9,6 +9,8 @@
 | interim_6800seq.zip | 0.65232 | 0.6798 | 0.0275 | 24m7s |
 | speed_onnx2.zip (two group_gru averaged) | 0.65408 | 0.6816 | 0.0275 | 43m21s |
 | final_ema_pair.zip (two EMA group_gru, all sequences) | 0.65440 | 0.6822 | 0.0278 | 40m31s |
+| ema_wd_pair.zip (as above, weight decay 0.1) | 0.65415 | 0.6820 | 0.0279 | 42m6s |
+| ema_wd_valid_pair.zip (as above, plus all of validation) | 0.65527 | not fair | | 44m1s |
 
 A pair took 1.84 times as long as one model, so nearly all scorer time is the network itself.
 Three group_gru models would take about 63 minutes, over the 60 minute limit.
@@ -105,3 +107,10 @@ Both pairs: two group_gru with EMA 0.999 and weight decay 0.1, all training sequ
 - Weight decay 0.1 lifted the weaker single model, but the pair did not gain.
 - The models trained on validation score only about 0.002 higher on it, so they don't simply memorise it.
 - Both zips gave identical predictions on two passes, on Windows and on Linux. In one Linux run, all three pairs took 88.6 to 91.0 us per row, so all should take about 40 to 43 minutes on the scorer.
+
+## Public scores of the weight decay pairs
+
+- ema_wd_valid_pair.zip scored 0.65527, the best so far: +0.0011 over ema_wd_pair.zip (0.65415), whose only difference is that it did not train on validation.
+- That matches the all-rows gain seen on half B. Training on validation helps.
+- Weight decay 0.1 itself did nothing on the public score either: 0.65415 against 0.65440.
+- Scorer times for the three pairs range from 40m31s to 44m1s for the same network, so expect about 8% variation between runs.
