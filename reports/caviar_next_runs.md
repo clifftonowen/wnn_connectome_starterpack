@@ -63,3 +63,31 @@ Two group_gru models with EMA 0.999, trained on all training sequences (fold -1,
 - Two full local passes gave identical predictions. Windows took 112 to 118 us per row.
 - Linux container with one CPU, on the subset: 104 and 116 us per row, identical passes. speed_onnx2.zip took 137 and 122 in the same run, so the new pair costs about the same and should take about 43 minutes on the scorer.
 - The local under-limit check fails for both, as it did for speed_onnx2, because that limit uses this machine's timing.
+
+## Second seed of the validation test, and stronger weight decay
+
+Seed 1 repeats the validation test against its own seed 1 EMA reference (`caviar_half_b_reference_s1.json`). Changes on half B, with half A added:
+
+| Seed, fold | Masked | All rows | cv |
+|---|---|---|---|
+| s0 f0 | -0.0019 | -0.0005 | -0.0047 |
+| s0 f1 | +0.0011 | +0.0050 | +0.0047 |
+| s0 f2 | +0.0018 | +0.0045 | +0.0002 |
+| s1 f0 | +0.0007 | +0.0052 | +0.0037 |
+| s1 f1 | +0.0008 | +0.0040 | -0.0003 |
+| s1 f2 | +0.0010 | +0.0037 | +0.0034 |
+| Mean of 6 | +0.0006 | +0.0037 | +0.0012 |
+
+- Masked gains on 5 of 6 runs, but the mean of +0.0006 is under the 0.001 bar. All-row gains are larger and steady.
+- The only loss is the run that stopped early. Only half of validation was added here, so adding all of it could give more.
+- A model trained on all of validation can't be checked on validation, so only the public score can judge it.
+
+Weight decay with EMA, compared with `r2_ema` seed 0 (masked / cv per fold):
+
+| Weight decay | Fold 0 | Fold 1 | Fold 2 | Mean masked | Mean cv | Mean all rows |
+|---|---|---|---|---|---|---|
+| 0.01 | +0.0001/+0.0003 | +0.0003/+0.0007 | -0.0003/-0.0002 | +0.0001 | +0.0002 | +0.0001 |
+| 0.1 | +0.0001/+0.0001 | +0.0013/+0.0021 | +0.0017/+0.0010 | +0.0010 | +0.0011 | +0.0012 |
+
+- 0.1 passes the keep rule narrowly: all folds rise on both measures and the mean masked gain is 0.00104. Fold 0 barely moves.
+- 0.01 does nothing.

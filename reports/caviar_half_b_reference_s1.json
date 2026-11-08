@@ -1,0 +1,17 @@
+{
+  "r2_ema/group_gru_s1_f0": {
+    "validB_masked_wp": 0.679897273875645,
+    "validB_all_wp": 0.5070022202818607,
+    "cv_wp": 0.45075652249533604
+  },
+  "r2_ema/group_gru_s1_f1": {
+    "validB_masked_wp": 0.6798778672583343,
+    "validB_all_wp": 0.5070034300396762,
+    "cv_wp": 0.4429076524121722
+  },
+  "r2_ema/group_gru_s1_f2": {
+    "validB_masked_wp": 0.6792328111453843,
+    "validB_all_wp": 0.5064065845757473,
+    "cv_wp": 0.4506634049649195
+  }
+}
