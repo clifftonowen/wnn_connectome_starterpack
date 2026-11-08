@@ -91,3 +91,17 @@ Weight decay with EMA, compared with `r2_ema` seed 0 (masked / cv per fold):
 
 - 0.1 passes the keep rule narrowly: all folds rise on both measures and the mean masked gain is 0.00104. Fold 0 barely moves.
 - 0.01 does nothing.
+
+## Weight decay 0.1 pairs, with and without validation
+
+Both pairs: two group_gru with EMA 0.999 and weight decay 0.1, all training sequences, seeds 0 and 1.
+
+| Zip | Single models, masked | Pair, masked | Notes |
+|---|---|---|---|
+| final_ema_pair.zip (weight decay 1e-5, for comparison) | 0.6799, 0.6811 | 0.6822 | public 0.65440 |
+| ema_wd_pair.zip | 0.6808, 0.6811 | 0.6820 | no gain over final_ema_pair |
+| ema_wd_valid_pair.zip, plus all of validation | 0.6831, 0.6828 (trained on, not fair) | not fair | only the public score can judge it |
+
+- Weight decay 0.1 lifted the weaker single model, but the pair did not gain.
+- The models trained on validation score only about 0.002 higher on it, so they don't simply memorise it.
+- Both zips gave identical predictions on two passes, on Windows and on Linux. In one Linux run, all three pairs took 88.6 to 91.0 us per row, so all should take about 40 to 43 minutes on the scorer.
