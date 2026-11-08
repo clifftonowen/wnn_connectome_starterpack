@@ -335,13 +335,16 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     scored = np.arange(len(valid_data['x']))
     if valid_train:
         trained, scored = valid_halves(len(valid_data['x']))
+        if valid_train == 'all':
+            # Everything is trained on, so the validation score below is not a fair test.
+            trained = scored = np.arange(len(valid_data['x']))
         extras.append(valid_data)
     if extras:
         pool = Joined(x, *[e['x'] for e in extras]), Joined(y, *[e['y'] for e in extras])
         train_idx = np.concatenate([train_idx, len(x) + np.arange(added)])
         if valid_train:
             train_idx = np.concatenate([train_idx, len(x) + added + trained])
-            log(f'adding validation half {valid_train}, {len(trained)} sequences; scoring the other half')
+            log(f'adding validation {valid_train}, {len(trained)} sequences')
         log(f'training on {len(train_idx)} sequences, {len(train_idx) - len(rest) + n_dev} of them extra')
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
@@ -357,7 +360,11 @@ def run(key, round_name, fold, seed, overrides, tag=None, force=False, log=print
     valid = evaluate(model, valid_data['x'], valid_data['y'], scored, device, valid_data['mask'])
     eval_seconds = time.perf_counter() - begin
 
-    if valid_train:
+    if valid_train == 'all':
+        # Scored on sequences it trained on: kept apart, only as a sanity check.
+        scores = {'valid_seen_masked_wp': valid['masked']['wp'], 'valid_seen_all_wp': valid['all']['wp'],
+                  'valid_masked_wp': None, 'valid_all_wp': None}
+    elif valid_train:
         # Only half B was scored. Keep it out of the full-validation columns so tables can't mix them.
         scores = {'validB_masked_wp': valid['masked']['wp'], 'validB_all_wp': valid['all']['wp'],
                   'validB_masked_rows': valid['masked']['rows'],
@@ -397,8 +404,9 @@ def main():
     parser.add_argument('--gpu-fraction', type=float, default=GPU_FRACTION,
                         help='raise it to run one memory-heavy model alone')
     parser.add_argument('--extra-split', nargs='+', help='extra cached sequences to train on, such as extra rest')
-    parser.add_argument('--valid-train', choices=['A'],
-                        help='also train on validation half A, and score validation on half B only')
+    parser.add_argument('--valid-train', choices=['A', 'all'],
+                        help='A: also train on validation half A and score half B only. '
+                             'all: train on all of validation, so there is no fair validation score')
     for name, value in DEFAULTS.items():
         parser.add_argument('--' + name.replace('_', '-'), type=type(value), default=value)
     args = parser.parse_args()
