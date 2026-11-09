@@ -56,6 +56,16 @@ The baseline contains only inference code and an ONNX model. A ready-to-upload
 archive is provided as `baseline/baseline_submission.zip`; no training code or
 training checkpoint is included.
 
+## Project results
+
+The model-comparison and submission work is in [`caviar/`](caviar/README.md),
+with the experiment record in [`reports/caviar_summary.md`](reports/caviar_summary.md).
+As of 8 Nov 2026, the best submission reached **0.65527 public Global WP**
+against the supplied baseline's **0.59353**, and ran in **44m1s** on the
+competition scorer under its 60-minute limit. This is a public-leaderboard
+result on a test subset, not a private/final leaderboard score or a trading
+return. Model checkpoints and training data are not included in this repository.
+
 ## Submission
 
 Provide `solution.py` with `PredictionModel()` and `predict(data_point)`.
