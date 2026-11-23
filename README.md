@@ -58,13 +58,17 @@ training checkpoint is included.
 
 ## Project results
 
+The completed competition entry finished **611th** on the final leaderboard
+with **0.66251 Global Weighted Pearson correlation**. The leaderboard lists
+`2DF*` as the best submission.
+
+On the public leaderboard, the best submission scored **0.65527 Global WP**
+against the supplied baseline's **0.59353** on the same test subset. That
+submission ran in **44m01s** on the competition scorer under its 60-minute limit.
+
 The model-comparison and submission work is in [`caviar/`](caviar/README.md),
 with the experiment record in [`reports/caviar_summary.md`](reports/caviar_summary.md).
-As of 8 Nov 2026, the best submission reached **0.65527 public Global WP**
-against the supplied baseline's **0.59353**, and ran in **44m1s** on the
-competition scorer under its 60-minute limit. This is a public-leaderboard
-result on a test subset, not a private/final leaderboard score or a trading
-return. Model checkpoints and training data are not included in this repository.
+Model checkpoints and training data are not included in this repository.
 
 ## Submission
 

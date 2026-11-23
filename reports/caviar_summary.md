@@ -3,7 +3,12 @@
 This is the entry point for future sessions. It covers how experiments were run, what was found, and the current state, as of 2026-11-08.
 More detail lives in `caviar/README.md` (commands and files), `reports/caviar_next_runs.md` (the latest runs), `notebooks/02_caviar_results.ipynb` and `notebooks/03_tuning_results.ipynb`.
 
-## Current state
+## Competition result
+
+The completed entry placed **611th** on the final leaderboard with **0.66251
+Global WP**. The leaderboard lists `2DF*` as the best submission.
+
+## Public leaderboard and submission notes (8 Nov 2026)
 
 - **Best public score: `ema_wd_valid_pair.zip`, 0.65527**, in 44m1s. It averages two `group_gru` models with EMA and weight decay 0.1, trained on all training sequences plus all of validation.
 - **Best without validation training: `final_ema_pair.zip`, 0.65440.**
